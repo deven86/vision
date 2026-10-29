@@ -1,0 +1,60 @@
+name: Signing setup
+
+# Run once (and again only when App IDs/capabilities change).
+# Creates the distribution certificate + App Store profiles and stores them
+# encrypted on the `match-signing` branch of this repo.
+on:
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Regenerate profiles (needed after adding capabilities)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  setup:
+    runs-on: macos-15-intel
+    timeout-minutes: 30
+    env:
+      TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+      APP_IDS: com.jondhale.vision
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Prepare credentials (runner only)
+        run: |
+          mkdir -p "$RUNNER_TEMP/keys"
+          echo "${{ secrets.ASC_KEY_P8_BASE64 }}" | base64 --decode > "$RUNNER_TEMP/keys/AuthKey.p8"
+          echo "ASC_KEY_PATH=$RUNNER_TEMP/keys/AuthKey.p8" >> "$GITHUB_ENV"
+          PW=$(printf '%s' "${{ secrets.ASC_KEY_P8_BASE64 }}" | shasum -a 256 | cut -d' ' -f1)
+          echo "::add-mask::$PW"
+          echo "MATCH_PASSWORD=$PW" >> "$GITHUB_ENV"
+          AUTH=$(printf 'x-access-token:%s' "${{ github.token }}" | base64 | tr -d '\n')
+          echo "::add-mask::$AUTH"
+          echo "MATCH_GIT_AUTH=$AUTH" >> "$GITHUB_ENV"
+
+      - name: Create certificate and profiles
+        env:
+          MATCH_FORCE: ${{ inputs.force }}
+        run: |
+          set +e
+          fastlane signing_setup > "$RUNNER_TEMP/fastlane.log" 2>&1
+          status=$?
+          set -e
+          tail -80 "$RUNNER_TEMP/fastlane.log"
+          grep -E "✔|Successfully|Data Protection|Registering|Installed|profile" "$RUNNER_TEMP/fastlane.log" | tail -8 | cut -c1-600 \
+            | while IFS= read -r line; do echo "::notice title=signing::$line"; done
+          if [ $status -ne 0 ]; then
+            grep -iE "error|fail|maximum|limit|not found|invalid|denied|\[!\]" "$RUNNER_TEMP/fastlane.log" | tail -10 | cut -c1-900 \
+              | while IFS= read -r line; do echo "::error title=signing::$line"; done
+            exit $status
+          fi
+
+      - name: Remove key
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/keys"

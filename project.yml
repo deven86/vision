@@ -21,6 +21,11 @@ targets:
     sources:
       - path: VISION
     settings:
+      configs:
+        Release:
+          CODE_SIGN_STYLE: Manual
+          CODE_SIGN_IDENTITY: "Apple Distribution"
+          PROVISIONING_PROFILE_SPECIFIER: "match AppStore com.jondhale.vision"
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.jondhale.vision
         TARGETED_DEVICE_FAMILY: "1,2"

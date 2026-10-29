@@ -1,0 +1,74 @@
+# VISION signing, without a Mac.
+#
+# Certificates and App Store provisioning profiles are created once by `signing_setup`
+# and stored ENCRYPTED in this repository on the `match-signing` branch (fastlane match).
+# Every release build then installs them read-only, so signing is identical on every
+# throwaway GitHub runner and entitlements (data protection, App Groups, iCloud) are kept.
+#
+# The encryption password is derived from the App Store Connect API key secret, so no
+# extra secret is needed. If you ever rotate that API key, re-run "Signing setup" with force.
+
+default_platform(:ios)
+
+TEAM_ID   = ENV.fetch("TEAM_ID")
+APP_IDS   = ENV.fetch("APP_IDS", "com.jondhale.vision").split(",").map(&:strip)
+
+def asc_api_key
+  app_store_connect_api_key(
+    key_id: ENV.fetch("ASC_KEY_ID"),
+    issuer_id: ENV.fetch("ASC_ISSUER_ID"),
+    key_filepath: ENV.fetch("ASC_KEY_PATH"),
+    in_house: false
+  )
+end
+
+def run_match(readonly:, force: false)
+  match(
+    type: "appstore",
+    api_key: asc_api_key,
+    app_identifier: APP_IDS,
+    team_id: TEAM_ID,
+    storage_mode: "git",
+    git_url: "https://github.com/#{ENV.fetch('GITHUB_REPOSITORY')}.git",
+    git_branch: "match-signing",
+    git_basic_authorization: ENV.fetch("MATCH_GIT_AUTH"),
+    readonly: readonly,
+    force: force,
+    shallow_clone: true,
+    skip_docs: true
+  )
+end
+
+platform :ios do
+  desc "One-time (and on capability changes): App IDs, capabilities, distribution cert, profiles"
+  lane :signing_setup do
+    setup_ci
+    asc_api_key
+    APP_IDS.each do |identifier|
+      bundle = Spaceship::ConnectAPI::BundleId.find(identifier)
+      if bundle.nil?
+        UI.message("Registering App ID #{identifier}")
+        bundle = Spaceship::ConnectAPI::BundleId.create(
+          name: "VISION #{identifier.split('.').last}", identifier: identifier, platform: "IOS"
+        )
+      end
+      # Data Protection: files are encrypted by iOS while the device is locked.
+      begin
+        bundle.update_capability(
+          "DATA_PROTECTION", enabled: true,
+          settings: [{ key: "DATA_PROTECTION_PERMISSION_LEVEL", options: [{ key: "COMPLETE_PROTECTION", enabled: true }] }]
+        )
+        UI.success("#{identifier}: Data Protection = Complete")
+      rescue => e
+        UI.important("#{identifier}: could not set Data Protection automatically (#{e.message})")
+      end
+    end
+    run_match(readonly: false, force: ENV["MATCH_FORCE"] == "true")
+  end
+
+  desc "Every release build: install existing cert + profiles (never creates anything)"
+  lane :signing_install do
+    setup_ci
+    run_match(readonly: true)
+  end
+end

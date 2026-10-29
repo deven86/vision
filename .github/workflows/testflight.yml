@@ -14,6 +14,8 @@ jobs:
     runs-on: macos-15-intel
     timeout-minutes: 60
     environment: release        # add required reviewers to this environment in GitHub for a second approval
+    permissions:
+      contents: read
     env:
       TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
       ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
@@ -40,7 +42,26 @@ jobs:
           mkdir -p "$RUNNER_TEMP/keys"
           echo "${{ secrets.ASC_KEY_P8_BASE64 }}" | base64 --decode > "$RUNNER_TEMP/keys/AuthKey.p8"
 
-      - name: Archive (unsigned; signed by Apple cloud signing at export)
+      - name: Install signing (read-only)
+        run: |
+          echo "ASC_KEY_PATH=$RUNNER_TEMP/keys/AuthKey.p8" >> "$GITHUB_ENV"
+          PW=$(printf '%s' "${{ secrets.ASC_KEY_P8_BASE64 }}" | shasum -a 256 | cut -d' ' -f1)
+          echo "::add-mask::$PW"
+          AUTH=$(printf 'x-access-token:%s' "${{ github.token }}" | base64 | tr -d '\n')
+          echo "::add-mask::$AUTH"
+          export ASC_KEY_PATH="$RUNNER_TEMP/keys/AuthKey.p8" MATCH_PASSWORD="$PW" MATCH_GIT_AUTH="$AUTH" APP_IDS=com.jondhale.vision
+          set +e
+          fastlane signing_install > "$RUNNER_TEMP/match.log" 2>&1
+          status=$?
+          set -e
+          tail -40 "$RUNNER_TEMP/match.log"
+          if [ $status -ne 0 ]; then
+            grep -iE "error|fail|not found|invalid|\[!\]|run .*signing" "$RUNNER_TEMP/match.log" | tail -8 | cut -c1-900 \
+              | while IFS= read -r line; do echo "::error title=signing::$line"; done
+            exit $status
+          fi
+
+      - name: Archive (signed with distribution cert from match)
         run: |
           set +e
           xcodebuild archive \
@@ -50,7 +71,6 @@ jobs:
             -destination 'generic/platform=iOS' \
             -archivePath "$RUNNER_TEMP/VISION.xcarchive" \
             DEVELOPMENT_TEAM="$TEAM_ID" \
-            CODE_SIGNING_ALLOWED=NO \
             CURRENT_PROJECT_VERSION="${{ github.run_number }}" > "$RUNNER_TEMP/archive.log" 2>&1
           status=$?
           set -e
