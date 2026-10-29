@@ -49,7 +49,7 @@ jobs:
           echo "::add-mask::$PW"
           AUTH=$(printf 'x-access-token:%s' "${{ github.token }}" | base64 | tr -d '\n')
           echo "::add-mask::$AUTH"
-          export ASC_KEY_PATH="$RUNNER_TEMP/keys/AuthKey.p8" MATCH_PASSWORD="$PW" MATCH_GIT_AUTH="$AUTH" APP_IDS=com.jondhale.vision
+          export ASC_KEY_PATH="$RUNNER_TEMP/keys/AuthKey.p8" MATCH_PASSWORD="$PW" MATCH_GIT_AUTH="$AUTH" APP_IDS=com.jondhale.vision,com.jondhale.vision.share
           set +e
           fastlane signing_install > "$RUNNER_TEMP/match.log" 2>&1
           status=$?
