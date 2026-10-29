@@ -34,7 +34,7 @@ jobs:
 
       - name: Archive (cloud-managed signing)
         run: |
-          set -o pipefail
+          set +e
           xcodebuild archive \
             -project VISION.xcodeproj \
             -scheme VISION \
@@ -46,7 +46,15 @@ jobs:
             -authenticationKeyID "$ASC_KEY_ID" \
             -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
             DEVELOPMENT_TEAM="$TEAM_ID" \
-            CURRENT_PROJECT_VERSION="${{ github.run_number }}"
+            CURRENT_PROJECT_VERSION="${{ github.run_number }}" > "$RUNNER_TEMP/archive.log" 2>&1
+          status=$?
+          set -e
+          tail -40 "$RUNNER_TEMP/archive.log"
+          if [ $status -ne 0 ]; then
+            grep -E "error:|error -|: error|requires a provisioning profile|No profiles|No Account|No signing certificate|maximum number|Provisioning profile" "$RUNNER_TEMP/archive.log" \
+              | sort -u | tail -10 | cut -c1-900 | while IFS= read -r line; do echo "::error title=archive::$line"; done
+            exit $status
+          fi
 
       - name: Export and upload to App Store Connect
         run: |
