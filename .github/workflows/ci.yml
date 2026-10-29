@@ -50,6 +50,12 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             | tee build.log
 
+      - name: Report compile/test errors
+        if: failure()
+        run: |
+          grep -E "error:|\*\* (BUILD|TEST) FAILED|Test Case .* failed|XCTAssert" build.log | sort -u | head -15 | cut -c1-900 \
+            | while IFS= read -r line; do echo "::error title=build::$line"; done
+
       - name: Upload build log on failure
         if: failure()
         uses: actions/upload-artifact@v4
