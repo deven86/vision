@@ -17,6 +17,14 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - name: Select Xcode 26 (Apple requires the iOS 26 SDK)
+        run: |
+          echo "::notice title=xcodes::$(ls -d /Applications/Xcode*.app | xargs -n1 basename | tr '\n' ' ')"
+          X=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          if [ -z "$X" ]; then echo "::error title=xcode::No Xcode 26 installed on this runner image"; exit 1; fi
+          sudo xcode-select -s "$X/Contents/Developer"
+          echo "::notice title=selected::$(xcodebuild -version | tr '\n' ' ')"
+
       - name: Show toolchain
         run: xcodebuild -version
 
