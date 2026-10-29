@@ -20,6 +20,8 @@ targets:
     platform: iOS
     sources:
       - path: VISION
+    dependencies:
+      - target: VISIONShare
     settings:
       configs:
         Release:
@@ -41,6 +43,7 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSFaceIDUsageDescription: VISION uses Face ID to unlock your private vault.
         NSPhotoLibraryAddUsageDescription: VISION saves photos and videos you choose to export to your Photos library.
+        VISIONKeychainGroup: $(AppIdentifierPrefix)com.jondhale.vision.shared
         ITSAppUsesNonExemptEncryption: false   # only Apple OS crypto (CryptoKit) — exempt; skips the compliance prompt per build
         UILaunchScreen:
           UIColorName: LaunchBackground
@@ -62,6 +65,54 @@ targets:
       path: VISION/VISION.entitlements
       properties:
         com.apple.developer.default-data-protection: NSFileProtectionComplete
+        com.apple.security.application-groups:
+          - group.com.jondhale.vision
+        keychain-access-groups:
+          - $(AppIdentifierPrefix)com.jondhale.vision.shared
+
+  VISIONShare:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: VISIONShare
+      - path: VISION/Shared
+        group: VISIONShare/Shared
+      - path: VISION/App/Theme.swift
+        group: VISIONShare/Shared
+    settings:
+      configs:
+        Release:
+          CODE_SIGN_STYLE: Manual
+          CODE_SIGN_IDENTITY: "Apple Distribution"
+          PROVISIONING_PROFILE_SPECIFIER: "match AppStore com.jondhale.vision.share"
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.jondhale.vision.share
+        TARGETED_DEVICE_FAMILY: "1,2"
+        CODE_SIGN_ENTITLEMENTS: VISIONShare/VISIONShare.entitlements
+        SKIP_INSTALL: YES
+    info:
+      path: VISIONShare/Info.plist
+      properties:
+        CFBundleDisplayName: VISION
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        VISIONKeychainGroup: $(AppIdentifierPrefix)com.jondhale.vision.shared
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.share-services
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
+          NSExtensionAttributes:
+            NSExtensionActivationRule: >-
+              SUBQUERY(extensionItems, $item, SUBQUERY($item.attachments, $att,
+              ANY $att.registeredTypeIdentifiers UTI-CONFORMS-TO "public.image" OR
+              ANY $att.registeredTypeIdentifiers UTI-CONFORMS-TO "public.movie").@count >= 1).@count >= 1
+    entitlements:
+      path: VISIONShare/VISIONShare.entitlements
+      properties:
+        com.apple.developer.default-data-protection: NSFileProtectionComplete
+        com.apple.security.application-groups:
+          - group.com.jondhale.vision
+        keychain-access-groups:
+          - $(AppIdentifierPrefix)com.jondhale.vision.shared
 
   VISIONTests:
     type: bundle.unit-test

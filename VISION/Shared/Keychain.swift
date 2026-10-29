@@ -18,7 +18,7 @@ enum SharedConfig {
     /// so the team ID never has to be hard-coded.
     static var keychainGroup: String? {
         guard let value = Bundle.main.object(forInfoDictionaryKey: "VISIONKeychainGroup") as? String,
-              !value.isEmpty, !value.hasPrefix("$(") else { return nil }
+              !value.isEmpty, !value.hasPrefix("$("), !value.hasPrefix(".") else { return nil }
         return value
     }
 }

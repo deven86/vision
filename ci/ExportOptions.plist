@@ -14,6 +14,8 @@
     <dict>
         <key>com.jondhale.vision</key>
         <string>match AppStore com.jondhale.vision</string>
+        <key>com.jondhale.vision.share</key>
+        <string>match AppStore com.jondhale.vision.share</string>
     </dict>
     <key>manageAppVersionAndBuildNumber</key>
     <false/>
