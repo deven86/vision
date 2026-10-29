@@ -35,6 +35,7 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSFaceIDUsageDescription: VISION uses Face ID to unlock your private vault.
+        ITSAppUsesNonExemptEncryption: false   # only Apple OS crypto (CryptoKit) — exempt; skips the compliance prompt per build
         UILaunchScreen:
           UIColorName: LaunchBackground
         UIUserInterfaceStyle: Dark
