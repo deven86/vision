@@ -9,6 +9,7 @@ struct VISIONApp: App {
     private let container: ModelContainer
 
     init() {
+        VaultStore.shared.migrateLegacyVaultIfNeeded()   // vault moved into the App Group (Share Extension)
         VaultStore.shared.prepareDirectories()
         ExportService.purgeAll()   // leftovers from an export interrupted by a crash or kill
         do {

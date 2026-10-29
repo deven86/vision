@@ -1,11 +1,6 @@
 import Foundation
 import SwiftData
 
-enum MediaKind: String, Codable, Sendable {
-    case photo
-    case video
-}
-
 // Models are written CloudKit-compatible from day one (no unique constraints,
 // every property has a default, relationships optional) so Phase 2 sync
 // does not need a destructive migration.

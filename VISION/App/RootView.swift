@@ -49,6 +49,8 @@ struct PrivacyCover: View {
 struct MainTabView: View {
     @Environment(\.modelContext) private var context
     @Environment(ExportPresenter.self) private var exporter
+    @Environment(ImportCoordinator.self) private var importer
+    @Environment(\.scenePhase) private var scenePhase
     @AppStorage(SettingsKeys.binRetentionDays) private var retentionDays = 30
 
     var body: some View {
@@ -68,6 +70,12 @@ struct MainTabView: View {
         .sheet(item: Binding(get: { exporter.batch }, set: { exporter.batch = $0 })) { batch in
             ExportSheet(items: batch.items)
         }
-        .task { Library.bootstrap(context: context, retentionDays: retentionDays) }
+        .task {
+            Library.bootstrap(context: context, retentionDays: retentionDays)
+            importer.collectInbox(context: context)
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { importer.collectInbox(context: context) }
+        }
     }
 }

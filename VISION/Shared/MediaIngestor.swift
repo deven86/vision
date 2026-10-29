@@ -18,7 +18,7 @@ enum IngestError: LocalizedError {
     }
 }
 
-struct IngestResult: Sendable {
+struct IngestResult: Codable, Sendable {
     let id: UUID
     let kind: MediaKind
     let title: String

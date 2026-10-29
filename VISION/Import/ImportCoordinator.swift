@@ -99,6 +99,34 @@ final class ImportCoordinator {
         return image.file
     }
 
+    /// Files items that the Share Extension already encrypted into the vault.
+    func collectInbox(context: ModelContext) {
+        guard !isRunning else { return }
+        let pending = SharedInbox.pending()
+        guard !pending.isEmpty else { return }
+        let folders = (try? context.fetch(FetchDescriptor<Folder>())) ?? []
+        let folder = folders.first { $0.name == Self.sharedFolderName }
+            ?? Library.createFolder(named: Self.sharedFolderName, context: context)
+        var added = 0
+        for entry in pending {
+            let id = entry.result.id
+            let exists = ((try? context.fetchCount(FetchDescriptor<MediaItem>(predicate: #Predicate { $0.id == id }))) ?? 0) > 0
+            if !exists {
+                insert(entry.result, into: folder, context: context)
+                added += 1
+            }
+            SharedInbox.remove(entry)   // only after the item is saved in the library
+        }
+        guard added > 0 else { return }
+        summary = "Added \(added) item\(added == 1 ? "" : "s") shared from other apps to “\(Self.sharedFolderName)”"
+        Task {
+            try? await Task.sleep(for: .seconds(4))
+            if !isRunning { summary = nil }
+        }
+    }
+
+    static let sharedFolderName = "Shared to VISION"
+
     private func insert(_ result: IngestResult, into folder: Folder, context: ModelContext) {
         let item = MediaItem(id: result.id, kind: result.kind, title: result.title,
                              contentTypeID: result.contentTypeID, byteSize: result.byteSize,
