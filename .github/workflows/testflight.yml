@@ -19,7 +19,7 @@ jobs:
       ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
       ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install XcodeGen
         run: brew install xcodegen
@@ -51,6 +51,7 @@ jobs:
       - name: Export and upload to App Store Connect
         run: |
           sed "s/__TEAM_ID__/$TEAM_ID/" ci/ExportOptions.plist > "$RUNNER_TEMP/ExportOptions.plist"
+          set +e
           xcodebuild -exportArchive \
             -archivePath "$RUNNER_TEMP/VISION.xcarchive" \
             -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
@@ -58,7 +59,21 @@ jobs:
             -allowProvisioningUpdates \
             -authenticationKeyPath "$RUNNER_TEMP/keys/AuthKey.p8" \
             -authenticationKeyID "$ASC_KEY_ID" \
-            -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID" > "$RUNNER_TEMP/export.log" 2>&1
+          status=$?
+          set -e
+          tail -60 "$RUNNER_TEMP/export.log"
+          if [ $status -ne 0 ]; then
+            # Surface the real reason as annotations (readable without opening the raw log)
+            grep -iE "error|fail|requires|profile|certificate|denied|not (found|allowed)|invalid" "$RUNNER_TEMP/export.log" \
+              | grep -v "^\s*$" | tail -8 | cut -c1-900 | while IFS= read -r line; do echo "::error title=export::$line"; done
+            DIST=$(grep -oE "/[^ ]*\.xcdistributionlogs" "$RUNNER_TEMP/export.log" | head -1)
+            if [ -n "$DIST" ] && [ -d "$DIST" ]; then
+              grep -rhiE "error|fail|denied|invalid|requires" "$DIST" 2>/dev/null | grep -viE "^\s*$" \
+                | tail -10 | cut -c1-900 | while IFS= read -r line; do echo "::error title=distribution::$line"; done
+            fi
+            exit $status
+          fi
 
       - name: Remove key
         if: always()
