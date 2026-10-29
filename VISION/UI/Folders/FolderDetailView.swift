@@ -10,6 +10,7 @@ struct FolderDetailView: View {
     let folder: Folder
 
     @Environment(\.modelContext) private var context
+    @Environment(ExportPresenter.self) private var exporter
     @Query(sort: \Folder.sortIndex) private var folders: [Folder]
 
     @State private var sort: FolderSort = .newest
@@ -107,11 +108,17 @@ struct FolderDetailView: View {
                 endSelection()
             } label: { Label("Favorite", systemImage: "heart") }
             Spacer()
+            Button {
+                exporter.export(selectedItems)
+                endSelection()
+            } label: { Label("Export", systemImage: "square.and.arrow.up") }
+            Spacer()
             Button { showMove = true } label: { Label("Move", systemImage: "folder") }
             Spacer()
             Button(role: .destructive) { confirmDelete = true } label: { Label("Delete", systemImage: "trash") }
         }
-        .labelStyle(.titleAndIcon)
+        .labelStyle(.iconOnly)
+        .font(.title3)
         .font(.subheadline.weight(.semibold))
         .disabled(selection.isEmpty)
         .padding(.horizontal, 24)

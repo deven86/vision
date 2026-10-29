@@ -10,6 +10,7 @@ struct PhotoViewer: View {
     @State private var current: UUID
     @State private var chromeVisible = true
     @State private var showInfo = false
+    @State private var exportItems: ExportBatch?
 
     init(context: PhotoViewerContext) {
         self.context = context
@@ -38,6 +39,7 @@ struct PhotoViewer: View {
             if chromeVisible { chrome.transition(.opacity) }
         }
         .statusBarHidden(!chromeVisible)
+        .sheet(item: $exportItems) { ExportSheet(items: $0.items) }
         .sheet(isPresented: $showInfo) {
             if let item = currentItem { MediaInfoSheet(item: item) }
         }
@@ -65,6 +67,12 @@ struct PhotoViewer: View {
                         .frame(width: 44, height: 44)
                 }
                 .accessibilityLabel("Favorite")
+                Button {
+                    if let item = currentItem { exportItems = ExportBatch(items: [item]) }
+                } label: {
+                    Image(systemName: "square.and.arrow.up").font(.title3).frame(width: 44, height: 44)
+                }
+                .accessibilityLabel("Export")
                 Button { showInfo = true } label: {
                     Image(systemName: "info.circle").font(.title3).frame(width: 44, height: 44)
                 }

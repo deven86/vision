@@ -48,6 +48,7 @@ struct PrivacyCover: View {
 
 struct MainTabView: View {
     @Environment(\.modelContext) private var context
+    @Environment(ExportPresenter.self) private var exporter
     @AppStorage(SettingsKeys.binRetentionDays) private var retentionDays = 30
 
     var body: some View {
@@ -63,6 +64,9 @@ struct MainTabView: View {
         }
         .overlay(alignment: .bottom) {
             ImportProgressBanner().padding(.bottom, 64)
+        }
+        .sheet(item: Binding(get: { exporter.batch }, set: { exporter.batch = $0 })) { batch in
+            ExportSheet(items: batch.items)
         }
         .task { Library.bootstrap(context: context, retentionDays: retentionDays) }
     }

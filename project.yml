@@ -35,6 +35,7 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSFaceIDUsageDescription: VISION uses Face ID to unlock your private vault.
+        NSPhotoLibraryAddUsageDescription: VISION saves photos and videos you choose to export to your Photos library.
         ITSAppUsesNonExemptEncryption: false   # only Apple OS crypto (CryptoKit) — exempt; skips the compliance prompt per build
         UILaunchScreen:
           UIColorName: LaunchBackground

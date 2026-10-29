@@ -62,8 +62,14 @@ struct MediaContextMenu: View {
     let item: MediaItem
     let folders: [Folder]
     @Environment(\.modelContext) private var context
+    @Environment(ExportPresenter.self) private var exporter
 
     var body: some View {
+        Button {
+            exporter.export([item])
+        } label: {
+            Label("Export…", systemImage: "square.and.arrow.up")
+        }
         Button {
             Library.toggleFavorite(item, context: context)
         } label: {

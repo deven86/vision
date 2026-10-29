@@ -5,10 +5,12 @@ import SwiftData
 struct VISIONApp: App {
     @State private var auth = AuthService()
     @State private var importer = ImportCoordinator()
+    @State private var exporter = ExportPresenter()
     private let container: ModelContainer
 
     init() {
         VaultStore.shared.prepareDirectories()
+        ExportService.purgeAll()   // leftovers from an export interrupted by a crash or kill
         do {
             // CloudKit stays OFF until Phase 2 adds opt-in sync explicitly.
             let configuration = ModelConfiguration("VISIONLibrary",
@@ -26,6 +28,7 @@ struct VISIONApp: App {
             RootView()
                 .environment(auth)
                 .environment(importer)
+                .environment(exporter)
                 .preferredColorScheme(.dark)
                 .tint(Theme.accent)
         }
