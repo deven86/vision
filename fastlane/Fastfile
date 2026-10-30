@@ -71,4 +71,18 @@ platform :ios do
     setup_ci
     run_match(readonly: true)
   end
+
+  desc "Read-only: report which App IDs exist and their capabilities"
+  lane :portal_check do
+    asc_api_key
+    %w[com.jondhale.vision com.jondhale.vision.share].each do |identifier|
+      bundle = Spaceship::ConnectAPI::BundleId.find(identifier)
+      if bundle.nil?
+        UI.important("PORTAL #{identifier}: NOT REGISTERED")
+        next
+      end
+      caps = bundle.get_capabilities.map(&:capability_type).sort
+      UI.important("PORTAL #{identifier}: #{caps.join(', ')}")
+    end
+  end
 end

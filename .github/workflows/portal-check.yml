@@ -1,0 +1,30 @@
+name: Portal check
+
+# Read-only: reports App IDs and their capabilities (App Groups, iCloud…).
+on: workflow_dispatch
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+      TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+      - name: Check
+        run: |
+          gem install fastlane --no-document >/dev/null
+          mkdir -p "$RUNNER_TEMP/keys"
+          echo "${{ secrets.ASC_KEY_P8_BASE64 }}" | base64 --decode > "$RUNNER_TEMP/keys/AuthKey.p8"
+          export ASC_KEY_PATH="$RUNNER_TEMP/keys/AuthKey.p8"
+          fastlane portal_check 2>&1 | tee "$RUNNER_TEMP/out.log" | tail -20
+          grep "PORTAL " "$RUNNER_TEMP/out.log" | sed 's/^.*PORTAL /PORTAL /' | while IFS= read -r l; do echo "::notice title=portal::$l"; done
+          rm -rf "$RUNNER_TEMP/keys"
