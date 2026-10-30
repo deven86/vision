@@ -19,6 +19,7 @@ struct FolderDetailView: View {
     @State private var selection = Set<UUID>()
     @State private var playing: MediaItem?
     @State private var viewer: PhotoViewerContext?
+    @State private var downloadRequest: DownloadRequest?
     @State private var showImport = false
     @State private var showMove = false
     @State private var confirmDelete = false
@@ -77,6 +78,7 @@ struct FolderDetailView: View {
         }
         .fullScreenCover(item: $playing) { PlayerScreen(item: $0) }
         .fullScreenCover(item: $viewer) { PhotoViewer(context: $0) }
+        .sheet(item: $downloadRequest) { CloudDownloadSheet(request: $0) }
     }
 
     @ToolbarContentBuilder
@@ -130,6 +132,8 @@ struct FolderDetailView: View {
         if selecting {
             if selection.contains(item.id) { selection.remove(item.id) } else { selection.insert(item.id) }
             UISelectionFeedbackGenerator().selectionChanged()
+        } else if !VaultStore.shared.hasMedia(item.id) {
+            downloadRequest = DownloadRequest(item: item) { tap(item) }
         } else if item.kind == .video {
             playing = item
         } else {

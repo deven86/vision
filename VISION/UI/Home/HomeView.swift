@@ -30,6 +30,7 @@ struct HomeView: View {
     @State private var scrollY: CGFloat = 0
     @State private var playing: MediaItem?
     @State private var viewer: PhotoViewerContext?
+    @State private var downloadRequest: DownloadRequest?
     @State private var showImport = false
     @State private var path = NavigationPath()
 
@@ -68,6 +69,7 @@ struct HomeView: View {
         .sheet(isPresented: $showImport) { ImportSheet() }
         .fullScreenCover(item: $playing) { PlayerScreen(item: $0) }
         .fullScreenCover(item: $viewer) { PhotoViewer(context: $0) }
+        .sheet(item: $downloadRequest) { CloudDownloadSheet(request: $0) }
     }
 
     // MARK: Content
@@ -181,6 +183,10 @@ struct HomeView: View {
     }
 
     private func open(_ item: MediaItem, in list: [MediaItem]) {
+        if !VaultStore.shared.hasMedia(item.id) {
+            downloadRequest = DownloadRequest(item: item) { open(item, in: list) }
+            return
+        }
         if item.kind == .video {
             playing = item
         } else {

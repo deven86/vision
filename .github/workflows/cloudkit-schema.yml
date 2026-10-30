@@ -1,0 +1,35 @@
+name: CloudKit schema
+
+# Uploads cloudkit/schema.ckdb to the DEVELOPMENT environment of iCloud.com.jondhale.vision.
+# Afterwards, deploy it to Production once in the CloudKit Console
+# (icloud.developer.apple.com → VISION container → Deploy Schema Changes).
+on: workflow_dispatch
+
+permissions:
+  contents: read
+
+jobs:
+  import:
+    runs-on: macos-15-intel
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - name: Validate and import schema
+        env:
+          CK_TOKEN: ${{ secrets.CLOUDKIT_MANAGEMENT_TOKEN }}
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          X=$(ls -d /Applications/Xcode_26*.app | sort -V | tail -1); sudo xcode-select -s "$X/Contents/Developer"
+          if [ -z "$CK_TOKEN" ]; then echo "::error title=schema::Add the CLOUDKIT_MANAGEMENT_TOKEN secret first"; exit 1; fi
+          xcrun cktool save-token --type management "$CK_TOKEN" >/dev/null
+          set +e
+          xcrun cktool validate-schema --team-id "$TEAM_ID" --container-id iCloud.com.jondhale.vision \
+            --environment development --file cloudkit/schema.ckdb > "$RUNNER_TEMP/ck.log" 2>&1 \
+          && xcrun cktool import-schema --team-id "$TEAM_ID" --container-id iCloud.com.jondhale.vision \
+            --environment development --file cloudkit/schema.ckdb >> "$RUNNER_TEMP/ck.log" 2>&1
+          status=$?
+          set -e
+          cat "$RUNNER_TEMP/ck.log"
+          tail -5 "$RUNNER_TEMP/ck.log" | cut -c1-800 | while IFS= read -r l; do
+            [ $status -eq 0 ] && echo "::notice title=schema::$l" || echo "::error title=schema::$l"; done
+          exit $status

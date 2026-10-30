@@ -91,6 +91,25 @@ final class VaultStore: @unchecked Sendable {
         return key
     }
 
+    /// Drop the cached key (after the vault was re-keyed to join an iCloud vault).
+    func resetKeyCache() {
+        keyLock.lock()
+        cachedKey = nil
+        keyLock.unlock()
+    }
+
+    func hasMedia(_ id: UUID) -> Bool {
+        FileManager.default.fileExists(atPath: mediaURL(for: id).path)
+    }
+
+    /// Every encrypted file whose header wraps a per-file key with the master key.
+    func allEncryptedFiles() -> [URL] {
+        [mediaDirectory, thumbnailDirectory, inboxDirectory].flatMap {
+            ((try? FileManager.default.contentsOfDirectory(at: $0, includingPropertiesForKeys: nil)) ?? [])
+                .filter { $0.pathExtension == "vsn" }
+        }
+    }
+
     func mediaURL(for id: UUID) -> URL {
         mediaDirectory.appendingPathComponent("\(id.uuidString).vsn")
     }

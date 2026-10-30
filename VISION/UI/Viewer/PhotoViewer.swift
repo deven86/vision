@@ -26,7 +26,7 @@ struct PhotoViewer: View {
 
             TabView(selection: $current) {
                 ForEach(context.items) { item in
-                    ZoomableVaultPhoto(id: item.id) {
+                    ZoomableVaultPhoto(id: item.id, item: item) {
                         withAnimation(.easeInOut(duration: 0.2)) { chromeVisible.toggle() }
                     }
                     .tag(item.id)
@@ -90,6 +90,7 @@ struct PhotoViewer: View {
 /// Decrypts the full photo (downsampled to screen-useful size) on demand.
 struct ZoomableVaultPhoto: View {
     let id: UUID
+    var item: MediaItem? = nil
     var onSingleTap: () -> Void
     @State private var image: UIImage?
 
@@ -105,6 +106,9 @@ struct ZoomableVaultPhoto: View {
             }
         }
         .task(id: id) {
+            if !VaultStore.shared.hasMedia(id), let item {
+                try? await MediaTransfer.shared.ensureLocal(item)   // synced from another device
+            }
             image = await FullImageLoader.load(id: id)
         }
     }

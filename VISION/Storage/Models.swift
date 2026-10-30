@@ -12,6 +12,10 @@ final class Folder {
     var createdAt: Date = Date()
     var sortIndex: Int = 0
     var coverItemID: UUID?
+    // iCloud sync bookkeeping (Phase 2)
+    var modifiedAt: Date = Date()
+    var syncFingerprint: String = ""
+    var cloudSystemFields: Data?
 
     @Relationship(deleteRule: .nullify, inverse: \MediaItem.folder)
     var items: [MediaItem]? = []
@@ -41,6 +45,12 @@ final class MediaItem {
     var deletedAt: Date?
     var previousFolderID: UUID?
     var usesVLC: Bool = false
+    // iCloud sync bookkeeping (Phase 2)
+    var modifiedAt: Date = Date()
+    var syncFingerprint: String = ""
+    var cloudSystemFields: Data?
+    /// Encrypted media parts stored in iCloud (0 = not backed up yet).
+    var cloudMediaParts: Int = 0
     var folder: Folder?
 
     init(id: UUID, kind: MediaKind, title: String, contentTypeID: String,

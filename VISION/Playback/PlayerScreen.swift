@@ -63,7 +63,10 @@ struct PlayerScreen: View {
             model.start()
             scheduleHide()
         }
-        .onDisappear { model.stop() }
+        .onDisappear {
+            model.stop()
+            CloudSync.shared.scheduleSync()
+        }
         .onChange(of: model.isPlaying) { _, playing in
             if playing { scheduleHide() } else { showControls() }
         }

@@ -73,9 +73,14 @@ struct MainTabView: View {
         .task {
             Library.bootstrap(context: context, retentionDays: retentionDays)
             importer.collectInbox(context: context)
+            MediaTransfer.shared.attach(context: context)
+            await CloudSync.shared.start(context: context)
         }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active { importer.collectInbox(context: context) }
+            if phase == .active {
+                importer.collectInbox(context: context)
+                Task { await CloudSync.shared.syncNow() }
+            }
         }
     }
 }

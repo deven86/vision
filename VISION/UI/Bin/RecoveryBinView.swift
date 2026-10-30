@@ -22,7 +22,7 @@ struct RecoveryBinView: View {
                     Section {
                         ForEach(binned) { item in row(item) }
                     } footer: {
-                        Text("Swipe right to restore, left to delete permanently. Permanent deletion removes the encrypted file and its key from this device. Cloud backup isn't on yet, so no cloud copies exist.")
+                        Text("Swipe right to restore, left to delete permanently. Permanent deletion removes the encrypted file and its key from this device. If iCloud Backup is on, the iCloud copy is deleted too.")
                     }
                 }
                 .scrollContentBackground(.hidden)

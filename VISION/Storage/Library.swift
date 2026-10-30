@@ -32,8 +32,10 @@ enum Library {
     /// Deleting a folder never destroys media: its items go to the Recovery Bin.
     static func deleteFolder(_ folder: Folder, context: ModelContext) {
         moveToBin(folder.activeItems, context: context)
+        let id = folder.id
         context.delete(folder)
         save(context)
+        CloudSync.shared.recordDeleted(folderIDs: [id])
     }
 
     static func setCover(_ item: MediaItem, for folder: Folder, context: ModelContext) {
@@ -78,12 +80,16 @@ enum Library {
 
     /// Removes the encrypted file (which carries its wrapped per-file key) and thumbnails.
     static func deleteForever(_ items: [MediaItem], context: ModelContext) {
+        let removed = items.map { ($0.id, $0.cloudMediaParts) }
         for item in items {
             VaultStore.shared.removeFiles(for: item.id)
             ThumbnailCache.shared.remove(item.id)
             context.delete(item)
         }
         save(context)
+        // Also remove the iCloud copies (metadata now, encrypted media parts in the background).
+        CloudSync.shared.recordDeleted(itemIDs: removed.map(\.0))
+        for (id, parts) in removed { MediaTransfer.shared.deleteParts(itemID: id, count: parts) }
     }
 
     static func purgeExpired(retentionDays: Int, context: ModelContext) {
@@ -95,5 +101,6 @@ enum Library {
 
     static func save(_ context: ModelContext) {
         do { try context.save() } catch { assertionFailure("Library save failed: \(error)") }
+        CloudSync.shared.scheduleSync()
     }
 }

@@ -29,6 +29,14 @@ struct SettingsView: View {
             }
 
             Section {
+                NavigationLink {
+                    CloudSettingsView()
+                } label: {
+                    Label("iCloud Sync & Backup", systemImage: "icloud")
+                }
+            }
+
+            Section {
                 Toggle("Autoplay previews on Home", isOn: $heroPreview)
             } header: {
                 Text("Playback")
@@ -61,7 +69,7 @@ struct SettingsView: View {
 
             Section("About") {
                 LabeledContent("Version", value: Bundle.main.versionString)
-                Text("Media is encrypted on this device with AES-256-GCM using a key that never leaves it. iCloud backup and sync are not enabled yet, so keep originals elsewhere until they are.")
+                Text("Media is encrypted on this device with AES-256-GCM. The key stays in your Keychain (and in iCloud Keychain once you turn on sync). Turn on iCloud Backup to be able to restore after losing this device.")
                     .font(.footnote)
                     .foregroundStyle(Theme.secondaryText)
             }

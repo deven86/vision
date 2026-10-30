@@ -29,21 +29,27 @@ enum SharedConfig {
 enum Keychain {
     private static let service = "com.jondhale.vision.vault"
 
-    private static func baseQuery(_ account: String, group: String?) -> [String: Any] {
+    private static func baseQuery(_ account: String, group: String?, synced: Bool = false) -> [String: Any] {
         var query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
                                     kSecAttrService as String: service,
-                                    kSecAttrAccount as String: account]
+                                    kSecAttrAccount as String: account,
+                                    kSecAttrSynchronizable as String: synced ? kCFBooleanTrue! : kCFBooleanFalse!]
         if let group { query[kSecAttrAccessGroup as String] = group }
         return query
     }
 
-    static func set(_ data: Data, for account: String, group: String? = nil) throws {
-        let base = baseQuery(account, group: group)
+    /// `synced: true` stores the item in iCloud Keychain (end-to-end encrypted by Apple,
+    /// available on the user's other devices). Used only for the vault key, only when
+    /// the user turns on iCloud sync.
+    static func set(_ data: Data, for account: String, group: String? = nil, synced: Bool = false) throws {
+        let base = baseQuery(account, group: group, synced: synced)
         var status = SecItemUpdate(base as CFDictionary, [kSecValueData as String: data] as CFDictionary)
         if status == errSecItemNotFound {
             var add = base
             add[kSecValueData as String] = data
-            add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+            add[kSecAttrAccessible as String] = synced
+                ? kSecAttrAccessibleAfterFirstUnlock
+                : kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
             status = SecItemAdd(add as CFDictionary, nil)
         }
         guard status == errSecSuccess else { throw KeychainError.unexpectedStatus(status) }
@@ -51,8 +57,8 @@ enum Keychain {
 
     /// Returns nil ONLY when the item truly does not exist. Any other failure throws,
     /// so callers never mistake a temporary error for "no key" and overwrite real data.
-    static func read(_ account: String, group: String? = nil) throws -> Data? {
-        var query = baseQuery(account, group: group)
+    static func read(_ account: String, group: String? = nil, synced: Bool = false) throws -> Data? {
+        var query = baseQuery(account, group: group, synced: synced)
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?
@@ -64,8 +70,8 @@ enum Keychain {
         }
     }
 
-    static func remove(_ account: String, group: String? = nil) {
-        SecItemDelete(baseQuery(account, group: group) as CFDictionary)
+    static func remove(_ account: String, group: String? = nil, synced: Bool = false) {
+        SecItemDelete(baseQuery(account, group: group, synced: synced) as CFDictionary)
     }
 }
 
@@ -83,6 +89,28 @@ enum VaultKeyError: Error, LocalizedError {
 /// Builds before the extension stored it in the app's private group; it is copied over once.
 enum MasterKey {
     private static let account = "master-key.v1"
+    private static let syncedAccount = "master-key.icloud.v1"
+
+    /// Short, non-secret fingerprint used to tell vault keys apart (SHA-256 prefix).
+    static func identifier(of key: SymmetricKey) -> String {
+        let digest = SHA256.hash(data: key.withUnsafeBytes { Data($0) } + Data("VISION-key-id".utf8))
+        return digest.prefix(8).map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// The copy in iCloud Keychain, if the user has turned that on (on any of their devices).
+    static func readSynced() -> SymmetricKey? {
+        guard let data = (try? Keychain.read(syncedAccount, synced: true)) ?? nil, data.count == 32 else { return nil }
+        return SymmetricKey(data: data)
+    }
+
+    static func storeSynced(_ key: SymmetricKey) throws {
+        try Keychain.set(key.withUnsafeBytes { Data($0) }, for: syncedAccount, synced: true)
+    }
+
+    /// Replaces this device's key. Only call after every vault file was re-wrapped to `key`.
+    static func replaceLocal(with key: SymmetricKey) throws {
+        try Keychain.set(key.withUnsafeBytes { Data($0) }, for: account, group: SharedConfig.keychainGroup)
+    }
 
     static func loadOrCreate(allowCreate: Bool) throws -> SymmetricKey {
         let shared = SharedConfig.keychainGroup
@@ -97,6 +125,11 @@ enum MasterKey {
                 return SymmetricKey(data: legacy)
             }
             return SymmetricKey(data: legacy)   // keep working even if the copy check failed
+        }
+        // New device, same Apple ID with iCloud Keychain: reuse the vault key from the other devices.
+        if let synced = readSynced() {
+            try Keychain.set(synced.withUnsafeBytes { Data($0) }, for: account, group: shared)
+            return synced
         }
         // Safety: never mint a fresh key when encrypted files already exist —
         // that would silently orphan the whole vault.
