@@ -44,6 +44,7 @@ targets:
         NSFaceIDUsageDescription: VISION uses Face ID to unlock your private vault.
         NSPhotoLibraryAddUsageDescription: VISION saves photos and videos you choose to export to your Photos library.
         VISIONKeychainGroup: $(AppIdentifierPrefix)com.jondhale.vision.shared
+        VISIONCloudKitEnabled: true
         ITSAppUsesNonExemptEncryption: false   # only Apple OS crypto (CryptoKit) — exempt; skips the compliance prompt per build
         UILaunchScreen:
           UIColorName: LaunchBackground
@@ -69,6 +70,11 @@ targets:
           - group.com.jondhale.vision
         keychain-access-groups:
           - $(AppIdentifierPrefix)com.jondhale.vision.shared
+        com.apple.developer.icloud-container-identifiers:
+          - iCloud.com.jondhale.vision
+        com.apple.developer.icloud-services:
+          - CloudKit
+        com.apple.developer.icloud-container-environment: Production
 
   VISIONShare:
     type: app-extension
