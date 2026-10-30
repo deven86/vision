@@ -70,7 +70,7 @@ struct ImportSheet: View {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
             }
             .fileImporter(isPresented: $showFiles,
-                          allowedContentTypes: [.image, .movie],
+                          allowedContentTypes: [.image, .audiovisualContent, .data],
                           allowsMultipleSelection: true) { result in
                 guard case .success(let urls) = result, let destination else { return }
                 importer.importFiles(urls, into: destination, context: context)

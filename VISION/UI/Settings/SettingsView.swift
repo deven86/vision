@@ -51,8 +51,8 @@ struct SettingsView: View {
             }
 
             Section {
-                Text("Videos: MP4, MOV, M4V (H.264 and HEVC, up to 4K). Photos: HEIC, JPEG, PNG, GIF (first frame), TIFF, RAW supported by iOS.")
-                Text("Not yet: MKV, AVI, WMV, FLV. These are rejected at import with a clear message.")
+                Text("Videos: MP4, MOV, M4V play with Apple's hardware player (smoothest, up to 4K HDR). MKV, WebM, AVI, WMV, FLV, TS/M2TS, MPG, VOB, 3GP, OGV and more play with the built-in VLC engine.")
+                Text("Photos: HEIC, JPEG, PNG, GIF (first frame), TIFF and RAW supported by iOS. Import other video formats from Files.")
                     .foregroundStyle(Theme.secondaryText)
             } header: {
                 Text("Supported Formats")

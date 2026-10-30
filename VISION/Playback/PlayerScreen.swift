@@ -3,23 +3,32 @@ import AVFoundation
 
 struct PlayerScreen: View {
     @Environment(\.dismiss) private var dismiss
-    @State private var model: PlayerModel
+    @State private var model: any PlayerControlling
     @State private var controlsVisible = true
     @State private var hideTask: Task<Void, Never>?
     @State private var skipFlash: SkipFlash?
 
+    // Swipe-to-scrub state
+    @State private var scrubTarget: Double = 0
+    @State private var scrubOrigin: Double = 0
+    @State private var lastPanX: CGFloat = 0
+    @State private var scrubSpeed: ScrubSpeed = .normal
+
     init(item: MediaItem) {
-        _model = State(initialValue: PlayerModel(item: item))
+        let engine: any PlayerControlling = item.usesVLC ? VLCPlayerModel(item: item) : PlayerModel(item: item)
+        _model = State(initialValue: engine)
     }
 
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
 
-            PlayerLayerView(player: model.player, gravity: model.videoGravity)
-                .ignoresSafeArea()
+            surface.ignoresSafeArea()
 
-            gestureLayer
+            PlayerGestureLayer(onSingleTap: toggleControls,
+                               onDoubleTap: doubleTapSkip,
+                               onPan: handlePan)
+                .ignoresSafeArea()
 
             if model.isBuffering && model.errorMessage == nil && !model.isScrubbing {
                 ProgressView().controlSize(.large).tint(.white).allowsHitTesting(false)
@@ -32,7 +41,14 @@ struct PlayerScreen: View {
             }
 
             if controlsVisible {
-                PlayerControls(model: model, onClose: close, onInteract: scheduleHide)
+                PlayerControls(model: model, onClose: close, onInteract: scheduleHide,
+                               onBarScrub: { _ in showControls() })
+                    .transition(.opacity)
+            }
+
+            if model.isScrubbing {
+                ScrubPreviewBubble(model: model, origin: scrubOrigin, speed: scrubSpeed)
+                    .allowsHitTesting(false)
                     .transition(.opacity)
             }
 
@@ -42,6 +58,7 @@ struct PlayerScreen: View {
         }
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
+        .animation(.easeOut(duration: 0.15), value: model.isScrubbing)
         .onAppear {
             model.start()
             scheduleHide()
@@ -52,32 +69,57 @@ struct PlayerScreen: View {
         }
     }
 
-    // MARK: Gestures — single tap toggles chrome, double tap left/right skips 10s
-
-    private var gestureLayer: some View {
-        HStack(spacing: 0) {
-            tapZone(direction: -1)
-            tapZone(direction: 1)
+    @ViewBuilder
+    private var surface: some View {
+        if let av = model as? PlayerModel {
+            PlayerLayerView(player: av.player, gravity: av.videoGravity)
+        } else if let vlc = model as? VLCPlayerModel {
+            VLCSurface(player: vlc.player)
         }
-        .ignoresSafeArea()
     }
 
-    private func tapZone(direction: Double) -> some View {
-        Color.clear
-            .contentShape(Rectangle())
-            .gesture(
-                TapGesture(count: 2).onEnded { doubleTapSkip(direction) }
-                    .exclusively(before: TapGesture().onEnded { toggleControls() })
-            )
+    // MARK: Swipe anywhere to scrub (like the iOS player)
+
+    private func handlePan(_ phase: PlayerPan) {
+        switch phase {
+        case .began:
+            scrubOrigin = model.currentTime
+            scrubTarget = model.currentTime
+            lastPanX = 0
+            scrubSpeed = .normal
+            model.beginScrub()
+            showControls()
+            UISelectionFeedbackGenerator().selectionChanged()
+        case .changed(let translation, let width):
+            // Move your finger down while dragging for finer control (same idea as iOS).
+            let speed = ScrubSpeed(verticalOffset: abs(translation.y))
+            if speed != scrubSpeed {
+                scrubSpeed = speed
+                UISelectionFeedbackGenerator().selectionChanged()
+            }
+            // One screen-width ≈ 3 minutes (or the whole video if shorter).
+            let span = min(max(model.duration, 1), 180)
+            let delta = Double(translation.x - lastPanX) / Double(width) * span * speed.factor
+            lastPanX = translation.x
+            scrubTarget = model.clamped(scrubTarget + delta)
+            model.scrub(to: scrubTarget)
+        case .ended:
+            model.endScrub(at: scrubTarget)
+            scrubSpeed = .normal
+            scheduleHide()
+        }
     }
 
-    private func doubleTapSkip(_ direction: Double) {
-        model.skip(by: 10 * direction)
+    // MARK: Double tap ±10 s (repeated double taps add up: 10, 20, 30…)
+
+    private func doubleTapSkip(_ forward: Bool) {
+        model.skip(by: forward ? 10 : -10)
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
-        let flash = SkipFlash(forward: direction > 0)
-        withAnimation(.easeOut(duration: 0.15)) { skipFlash = flash }
+        let total = (skipFlash?.forward == forward ? skipFlash?.seconds ?? 0 : 0) + 10
+        let flash = SkipFlash(forward: forward, seconds: total)
+        withAnimation(.easeOut(duration: 0.12)) { skipFlash = flash }
         Task {
-            try? await Task.sleep(for: .milliseconds(650))
+            try? await Task.sleep(for: .milliseconds(900))
             if skipFlash?.id == flash.id { withAnimation(.easeIn(duration: 0.25)) { skipFlash = nil } }
         }
     }
@@ -126,12 +168,85 @@ struct PlayerScreen: View {
     }
 }
 
+enum ScrubSpeed: Equatable {
+    case normal, half, fine
+
+    init(verticalOffset: CGFloat) {
+        self = verticalOffset > 140 ? .fine : (verticalOffset > 70 ? .half : .normal)
+    }
+
+    var factor: Double {
+        switch self {
+        case .normal: return 1
+        case .half: return 0.5
+        case .fine: return 0.2
+        }
+    }
+
+    var label: String? {
+        switch self {
+        case .normal: return nil
+        case .half: return "Half-speed scrubbing"
+        case .fine: return "Fine scrubbing"
+        }
+    }
+}
+
+// MARK: - Preview bubble shown while scrubbing
+
+struct ScrubPreviewBubble: View {
+    let model: any PlayerControlling
+    let origin: Double
+    let speed: ScrubSpeed
+
+    var body: some View {
+        GeometryReader { geo in
+            let barInset: CGFloat = 20
+            let barWidth = geo.size.width - barInset * 2 - 64
+            let thumbWidth: CGFloat = min(220, geo.size.width * 0.5)
+            let x = barInset + barWidth * model.fraction
+            let clampedX = min(max(x, thumbWidth / 2 + 8), geo.size.width - thumbWidth / 2 - 8)
+            let delta = model.currentTime - origin
+
+            VStack(spacing: 8) {
+                if let label = speed.label {
+                    Text(label)
+                        .font(.caption.weight(.semibold))
+                        .padding(.horizontal, 10).padding(.vertical, 4)
+                        .background(.ultraThinMaterial, in: Capsule())
+                }
+                if let image = model.previewImage {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: thumbWidth, height: thumbWidth * 9 / 16)
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Color.white.opacity(0.85), lineWidth: 2))
+                        .shadow(color: .black.opacity(0.6), radius: 12)
+                }
+                VStack(spacing: 2) {
+                    Text(Format.clock(model.currentTime))
+                        .font(.system(size: 22, weight: .bold).monospacedDigit())
+                    Text((delta >= 0 ? "+" : "−") + Format.clock(abs(delta)))
+                        .font(.caption.weight(.semibold).monospacedDigit())
+                        .foregroundStyle(Theme.accent)
+                }
+                .shadow(color: .black.opacity(0.8), radius: 6)
+            }
+            .foregroundStyle(.white)
+            .position(x: clampedX, y: geo.size.height - 130 - (model.previewImage == nil ? 0 : thumbWidth * 9 / 32))
+        }
+        .ignoresSafeArea(.keyboard)
+    }
+}
+
 // MARK: - Controls overlay
 
 struct PlayerControls: View {
-    let model: PlayerModel
+    let model: any PlayerControlling
     let onClose: () -> Void
     let onInteract: () -> Void
+    let onBarScrub: (Bool) -> Void
 
     private let speeds: [Float] = [0.5, 0.75, 1, 1.25, 1.5, 2]
 
@@ -150,7 +265,7 @@ struct PlayerControls: View {
             VStack(spacing: 0) {
                 topBar
                 Spacer()
-                centerButtons
+                if !model.isScrubbing { centerButtons }
                 Spacer()
                 bottomBar
             }
@@ -175,19 +290,21 @@ struct PlayerControls: View {
                 .lineLimit(1)
             Spacer(minLength: 0)
 
-            Button {
-                withAnimation(.easeInOut(duration: 0.3)) {
-                    model.videoGravity = model.videoGravity == .resizeAspect ? .resizeAspectFill : .resizeAspect
+            if model.supportsFill {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.3)) { model.fillsScreen.toggle() }
+                    onInteract()
+                } label: {
+                    Image(systemName: model.fillsScreen
+                          ? "arrow.down.right.and.arrow.up.left"
+                          : "arrow.up.left.and.arrow.down.right")
+                        .font(.title3)
+                        .frame(width: 44, height: 44)
                 }
-                onInteract()
-            } label: {
-                Image(systemName: model.videoGravity == .resizeAspect
-                      ? "arrow.up.left.and.arrow.down.right"
-                      : "arrow.down.right.and.arrow.up.left")
-                    .font(.title3)
-                    .frame(width: 44, height: 44)
+                .accessibilityLabel(model.fillsScreen ? "Fit to screen" : "Fill screen")
+            } else {
+                Color.clear.frame(width: 44, height: 44)
             }
-            .accessibilityLabel(model.videoGravity == .resizeAspect ? "Fill screen" : "Fit to screen")
         }
     }
 
@@ -215,12 +332,12 @@ struct PlayerControls: View {
     }
 
     private var bottomBar: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 10) {
             HStack(spacing: 12) {
                 ScrubBar(fraction: model.fraction,
-                         onBegin: { model.beginScrub() },
-                         onChange: { model.scrub(toFraction: $0) },
-                         onEnd: { model.endScrub(atFraction: $0); onInteract() })
+                         onBegin: { model.beginScrub(); onBarScrub(true) },
+                         onChange: { model.scrub(to: $0 * model.duration) },
+                         onEnd: { model.endScrub(at: $0 * model.duration); onInteract() })
                 Text("-" + Format.clock(max(0, model.duration - model.currentTime)))
                     .font(.footnote.weight(.semibold).monospacedDigit())
                     .frame(minWidth: 52, alignment: .trailing)
@@ -256,7 +373,7 @@ struct PlayerControls: View {
     }
 }
 
-// MARK: - Scrub bar (thin at rest, grows while dragging)
+// MARK: - Scrub bar: drag anywhere on it, it moves relative to where you started
 
 struct ScrubBar: View {
     let fraction: Double
@@ -264,6 +381,7 @@ struct ScrubBar: View {
     let onChange: (Double) -> Void
     let onEnd: (Double) -> Void
     @State private var dragging = false
+    @State private var startFraction: Double = 0
 
     var body: some View {
         GeometryReader { geo in
@@ -271,9 +389,9 @@ struct ScrubBar: View {
             let knob: CGFloat = dragging ? 22 : 14
             ZStack(alignment: .leading) {
                 Capsule().fill(Color.white.opacity(0.28))
-                    .frame(height: dragging ? 7 : 4)
+                    .frame(height: dragging ? 8 : 4)
                 Capsule().fill(Theme.accent)
-                    .frame(width: width * fraction, height: dragging ? 7 : 4)
+                    .frame(width: width * fraction, height: dragging ? 8 : 4)
                 Circle().fill(Theme.accent)
                     .frame(width: knob, height: knob)
                     .shadow(color: .black.opacity(0.4), radius: 4)
@@ -282,22 +400,23 @@ struct ScrubBar: View {
             .frame(maxHeight: .infinity)
             .contentShape(Rectangle())
             .gesture(
-                DragGesture(minimumDistance: 0)
+                DragGesture(minimumDistance: 2)
                     .onChanged { value in
                         if !dragging {
                             dragging = true
+                            startFraction = fraction
                             onBegin()
                         }
-                        onChange(min(1, max(0, value.location.x / width)))
+                        onChange(min(1, max(0, startFraction + value.translation.width / width)))
                     }
                     .onEnded { value in
                         dragging = false
-                        onEnd(min(1, max(0, value.location.x / width)))
+                        onEnd(min(1, max(0, startFraction + value.translation.width / width)))
                     }
             )
             .animation(.spring(response: 0.25, dampingFraction: 0.8), value: dragging)
         }
-        .frame(height: 32)
+        .frame(height: 44)
         .accessibilityElement()
         .accessibilityLabel("Playback position")
         .accessibilityValue("\(Int(fraction * 100)) percent")
@@ -314,6 +433,7 @@ struct ScrubBar: View {
 struct SkipFlash: Equatable {
     let id = UUID()
     let forward: Bool
+    let seconds: Int
 }
 
 struct SkipFlashView: View {
@@ -322,14 +442,14 @@ struct SkipFlashView: View {
         HStack {
             if flash.forward { Spacer() }
             VStack(spacing: 6) {
-                Image(systemName: flash.forward ? "goforward.10" : "gobackward.10")
+                Image(systemName: flash.forward ? "goforward" : "gobackward")
                     .font(.system(size: 30, weight: .semibold))
-                Text("10 seconds").font(.caption.weight(.semibold))
+                Text("\(flash.seconds) seconds").font(.caption.weight(.semibold))
             }
             .foregroundStyle(.white)
-            .padding(28)
-            .background(Circle().fill(Color.white.opacity(0.14)))
-            .padding(.horizontal, 40)
+            .frame(width: 120, height: 120)
+            .background(Circle().fill(Color.white.opacity(0.16)))
+            .padding(.horizontal, 36)
             if !flash.forward { Spacer() }
         }
     }

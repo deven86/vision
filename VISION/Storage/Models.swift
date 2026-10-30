@@ -40,6 +40,7 @@ final class MediaItem {
     var lastPlayedAt: Date?
     var deletedAt: Date?
     var previousFolderID: UUID?
+    var usesVLC: Bool = false
     var folder: Folder?
 
     init(id: UUID, kind: MediaKind, title: String, contentTypeID: String,

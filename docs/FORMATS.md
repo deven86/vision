@@ -1,17 +1,19 @@
 # Supported format matrix
 
-Status legend: **Expected** = supported by AVFoundation/ImageIO on iOS 17+, not yet verified on device. **Tested** = verified on real hardware (none yet).
+VISION has two playback engines:
+- **Apple AVPlayer** (default): hardware decoding, lowest battery, smoothest. Used whenever it can play *every* track of a file.
+- **VLC engine** (MobileVLCKit, LGPL): used for everything else. Chosen once at import (`MediaItem.usesVLC`).
 
-| Container / codec | Status | Notes |
+Status: **Expected** = should work, not yet verified on a device. **Tested** = verified on real hardware.
+
+| Container / codec | Engine | Status |
 |---|---|---|
-| MOV — HEVC (iPhone camera) | Expected | Imported without transcoding |
-| MOV / MP4 — H.264 | Expected | |
-| MP4 — HEVC 4K / HDR (Dolby Vision, HLG) | Expected | HDR display depends on device |
-| M4V | Expected | DRM-protected iTunes files will not play |
-| MKV, AVI, WMV, FLV, WebM | Not supported | Rejected at import with a message; would need a third-party engine (Phase 3 decision) |
-| HEIC / HEIF, JPEG, PNG, TIFF | Expected | |
-| GIF | Expected (first frame) | No animation yet |
-| Live Photos | Partial | Still image only |
-| ProRAW / DNG | Expected | Shown downsampled to 3200 px |
+| MOV/MP4/M4V — H.264, HEVC, HDR | Apple | Tested (MOV/HEVC from iPhone camera) |
+| MP4 with DTS/other audio Apple can't decode | VLC | Expected |
+| MKV (H.264/HEVC/VP9/AV1 + AAC/AC3/DTS/Opus) | VLC | Expected |
+| WebM (VP8/VP9/AV1) | VLC | Expected |
+| AVI (DivX/Xvid/MJPEG), WMV/ASF, FLV/F4V | VLC | Expected |
+| TS/MTS/M2TS, MPG/MPEG/VOB, 3GP, OGV, RM/RMVB, MXF | VLC | Expected |
+| DRM-protected files (iTunes, Netflix downloads) | — | Not supported (by design) |
 
-Update this table as each row is tested on an iPhone and iPad.
+Limits of the VLC engine today: no scrub thumbnail bubble (the video frame itself follows your finger), no fill-screen toggle, hero autoplay preview disabled. Photos-library import only offers formats the Photos app holds; import other video formats from Files.

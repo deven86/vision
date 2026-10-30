@@ -131,6 +131,7 @@ final class ImportCoordinator {
         let item = MediaItem(id: result.id, kind: result.kind, title: result.title,
                              contentTypeID: result.contentTypeID, byteSize: result.byteSize,
                              duration: result.duration, pixelWidth: result.pixelWidth, pixelHeight: result.pixelHeight)
+        item.usesVLC = result.usesVLC
         context.insert(item)
         item.folder = folder
         Library.save(context)

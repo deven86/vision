@@ -1,10 +1,46 @@
 import AVFoundation
 import Observation
-import SwiftData
+import UIKit
+
+/// What the player screen needs from a playback engine. Two engines implement it:
+/// `PlayerModel` (Apple AVPlayer — hardware decoding, smoothest) and `VLCPlayerModel`
+/// (MKV, AVI, WebM, WMV and other formats Apple's player can't open).
+@MainActor
+protocol PlayerControlling: AnyObject {
+    var item: MediaItem { get }
+    var isPlaying: Bool { get }
+    var isBuffering: Bool { get }
+    var errorMessage: String? { get }
+    var isScrubbing: Bool { get }
+    var currentTime: Double { get }
+    var duration: Double { get }
+    var rate: Float { get }
+    var supportsFill: Bool { get }
+    var fillsScreen: Bool { get set }
+    /// Frame preview shown above the scrubber while seeking (nil if unavailable).
+    var previewImage: UIImage? { get }
+
+    func start()
+    func stop()
+    func togglePlayPause()
+    func skip(by seconds: Double)
+    func beginScrub()
+    func scrub(to seconds: Double)
+    func endScrub(at seconds: Double)
+    func setRate(_ rate: Float)
+}
+
+extension PlayerControlling {
+    var fraction: Double { duration > 0 ? min(1, max(0, currentTime / duration)) : 0 }
+
+    func clamped(_ seconds: Double) -> Double {
+        min(max(0, seconds), max(0, duration - 0.1))
+    }
+}
 
 @MainActor
 @Observable
-final class PlayerModel {
+final class PlayerModel: PlayerControlling {
     let player = AVPlayer()
     let item: MediaItem
 
@@ -16,7 +52,11 @@ final class PlayerModel {
     private(set) var isScrubbing = false
     private(set) var rate: Float = 1
     private(set) var errorMessage: String?
-    var videoGravity: AVLayerVideoGravity = .resizeAspect
+    private(set) var previewImage: UIImage?
+    var fillsScreen = false
+    let supportsFill = true
+
+    var videoGravity: AVLayerVideoGravity { fillsScreen ? .resizeAspectFill : .resizeAspect }
 
     @ObservationIgnored private var prepared: PreparedPlayback?
     @ObservationIgnored private var timeObserver: Any?
@@ -25,13 +65,14 @@ final class PlayerModel {
     @ObservationIgnored private var seekInProgress = false
     @ObservationIgnored private var chaseTarget: CMTime = .invalid
     @ObservationIgnored private var resumeAfterScrub = false
+    @ObservationIgnored private var generator: AVAssetImageGenerator?
+    @ObservationIgnored private var previewTarget: Double?
+    @ObservationIgnored private var previewBusy = false
 
     init(item: MediaItem) {
         self.item = item
         self.duration = item.duration
     }
-
-    var fraction: Double { duration > 0 ? min(1, max(0, currentTime / duration)) : 0 }
 
     // MARK: Lifecycle
 
@@ -56,6 +97,14 @@ final class PlayerModel {
         player.replaceCurrentItem(with: playerItem)
         observe(playerItem)
 
+        // Scrub previews: small frames, nearest keyframe within 1s = fast enough to follow a finger.
+        let generator = AVAssetImageGenerator(asset: playerItem.asset)
+        generator.appliesPreferredTrackTransform = true
+        generator.maximumSize = CGSize(width: 360, height: 360)
+        generator.requestedTimeToleranceBefore = CMTime(seconds: 1, preferredTimescale: 600)
+        generator.requestedTimeToleranceAfter = CMTime(seconds: 1, preferredTimescale: 600)
+        self.generator = generator
+
         let resume = item.watchPosition
         if resume > 5, resume < item.duration - 10 {
             currentTime = resume
@@ -67,6 +116,8 @@ final class PlayerModel {
     func stop() {
         saveProgress()
         player.pause()
+        generator?.cancelAllCGImageGeneration()
+        generator = nil
         if let timeObserver { player.removeTimeObserver(timeObserver) }
         timeObserver = nil
         if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
@@ -133,14 +184,7 @@ final class PlayerModel {
     }
 
     func skip(by seconds: Double) {
-        let target = min(max(0, currentTime + seconds), max(0, duration - 0.1))
-        currentTime = target
-        chaseSeek(to: target)
-    }
-
-    func seek(to seconds: Double) {
-        currentTime = seconds
-        chaseSeek(to: seconds)
+        seek(to: clamped(currentTime + seconds))
     }
 
     func setRate(_ newRate: Float) {
@@ -152,20 +196,28 @@ final class PlayerModel {
     func beginScrub() {
         guard !isScrubbing else { return }
         isScrubbing = true
+        previewImage = nil
         resumeAfterScrub = player.timeControlStatus != .paused
         player.pause()
     }
 
-    func scrub(toFraction fraction: Double) {
-        currentTime = fraction * duration
-        chaseSeek(to: currentTime)   // live frame preview while dragging
+    func scrub(to seconds: Double) {
+        currentTime = clamped(seconds)
+        chaseSeek(to: currentTime)          // the video itself follows the finger
+        requestPreview(currentTime)         // plus a thumbnail above the scrubber
     }
 
-    func endScrub(atFraction fraction: Double) {
-        currentTime = fraction * duration
+    func endScrub(at seconds: Double) {
+        currentTime = clamped(seconds)
         chaseSeek(to: currentTime)
         isScrubbing = false
+        previewTarget = nil
         if resumeAfterScrub { player.play() }
+    }
+
+    private func seek(to seconds: Double) {
+        currentTime = seconds
+        chaseSeek(to: seconds)
     }
 
     /// Apple's "chase" seeking (QA1820): never stack seeks; always land on the
@@ -189,6 +241,28 @@ final class PlayerModel {
                     self.performChaseSeek()
                 }
             }
+        }
+    }
+
+    /// Same "latest wins" idea for thumbnails: at most one decode in flight.
+    private func requestPreview(_ seconds: Double) {
+        previewTarget = seconds
+        if !previewBusy { runPreview() }
+    }
+
+    private func runPreview() {
+        guard let target = previewTarget, let generator else {
+            previewBusy = false
+            return
+        }
+        previewTarget = nil
+        previewBusy = true
+        Task { [weak self] in
+            let image = try? await generator.image(at: CMTime(seconds: target, preferredTimescale: 600)).image
+            guard let self else { return }
+            if let image, self.isScrubbing { self.previewImage = UIImage(cgImage: image) }
+            self.previewBusy = false
+            if self.previewTarget != nil { self.runPreview() }
         }
     }
 

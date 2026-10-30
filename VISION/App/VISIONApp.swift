@@ -11,7 +11,8 @@ struct VISIONApp: App {
     init() {
         VaultStore.shared.migrateLegacyVaultIfNeeded()   // vault moved into the App Group (Share Extension)
         VaultStore.shared.prepareDirectories()
-        ExportService.purgeAll()   // leftovers from an export interrupted by a crash or kill
+        ExportService.purgeAll()
+        VLCSupport.register()   // MKV, AVI, WebM, WMV… via the VLC engine   // leftovers from an export interrupted by a crash or kill
         do {
             // CloudKit stays OFF until Phase 2 adds opt-in sync explicitly.
             let configuration = ModelConfiguration("VISIONLibrary",

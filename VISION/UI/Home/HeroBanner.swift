@@ -16,7 +16,7 @@ struct HeroBanner: View {
             ZStack(alignment: .bottom) {
                 ZStack {
                     VaultThumbnail(id: item.id, size: .large)
-                    if previewEnabled && item.kind == .video {
+                    if previewEnabled && item.kind == .video && !item.usesVLC {
                         HeroPreview(item: item) {
                             withAnimation(.easeInOut(duration: 0.8)) { previewVisible = true }
                         }

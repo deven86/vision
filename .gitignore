@@ -12,3 +12,8 @@ xcuserdata/
 *.p12
 *.mobileprovision
 *.cer
+
+# CocoaPods (installed in CI)
+Pods/
+Podfile.lock
+*.xcworkspace

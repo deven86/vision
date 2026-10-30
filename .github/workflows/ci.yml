@@ -34,6 +34,20 @@ jobs:
       - name: Generate Xcode project
         run: xcodegen generate
 
+      - name: Cache CocoaPods
+        uses: actions/cache@v4
+        with:
+          path: |
+            Pods
+            ~/Library/Caches/CocoaPods
+          key: pods-${{ runner.os }}-${{ hashFiles('Podfile') }}
+
+      - name: Install VLC engine (CocoaPods)
+        run: |
+          set -o pipefail
+          command -v pod >/dev/null || sudo gem install cocoapods
+          pod install --repo-update 2>&1 | tail -20
+
       - name: Pick an iPhone simulator
         id: sim
         run: |
@@ -44,7 +58,7 @@ jobs:
         run: |
           set -o pipefail
           xcodebuild test \
-            -project VISION.xcodeproj \
+            -workspace VISION.xcworkspace \
             -scheme VISION \
             -destination "id=${{ steps.sim.outputs.udid }}" \
             CODE_SIGNING_ALLOWED=NO \

@@ -37,6 +37,20 @@ jobs:
       - name: Generate Xcode project
         run: xcodegen generate
 
+      - name: Cache CocoaPods
+        uses: actions/cache@v4
+        with:
+          path: |
+            Pods
+            ~/Library/Caches/CocoaPods
+          key: pods-${{ runner.os }}-${{ hashFiles('Podfile') }}
+
+      - name: Install VLC engine (CocoaPods)
+        run: |
+          set -o pipefail
+          command -v pod >/dev/null || sudo gem install cocoapods
+          pod install --repo-update 2>&1 | tail -20
+
       - name: Write App Store Connect API key (temporary, runner only)
         run: |
           mkdir -p "$RUNNER_TEMP/keys"
@@ -65,7 +79,7 @@ jobs:
         run: |
           set +e
           xcodebuild archive \
-            -project VISION.xcodeproj \
+            -workspace VISION.xcworkspace \
             -scheme VISION \
             -configuration Release \
             -destination 'generic/platform=iOS' \
