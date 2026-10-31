@@ -45,6 +45,7 @@ final class MediaItem {
     var deletedAt: Date?
     var previousFolderID: UUID?
     var usesVLC: Bool = false
+    var contentHash: String?
     // iCloud sync bookkeeping (Phase 2)
     var modifiedAt: Date = Date()
     var syncFingerprint: String = ""

@@ -53,6 +53,11 @@ struct SettingsView: View {
             }
 
             Section("Storage") {
+                NavigationLink {
+                    StorageManagerView()
+                } label: {
+                    Label("Manage Storage & Duplicates", systemImage: "internaldrive")
+                }
                 LabeledContent("Vault", value: Format.bytes(mediaBytes))
                 LabeledContent("Thumbnails", value: Format.bytes(thumbnailBytes))
                 Button("Clear Memory Cache") { ThumbnailCache.shared.purge() }

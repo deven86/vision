@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import AVFoundation
 import UniformTypeIdentifiers
@@ -9,12 +10,14 @@ enum IngestError: LocalizedError {
     case unplayable(String)
     case unreadableImage(String)
     case unsupportedHere(String)
+    case duplicate(String)
 
     var errorDescription: String? {
         switch self {
         case .unsupportedType(let name): return "\(name): not a photo or video."
         case .unplayable(let name): return "\(name): this video couldn't be read. The file may be damaged or use a very rare format."
         case .unreadableImage(let name): return "\(name): the image couldn't be read."
+        case .duplicate(let name): return "\(name) is already in your vault."
         case .unsupportedHere(let name): return "\(name): open VISION and import this format from Files (it needs VISION's full video player)."
         }
     }
@@ -31,6 +34,22 @@ struct IngestResult: Codable, Sendable {
     let pixelHeight: Int
     /// true = needs the VLC engine (MKV, AVI, WebM, WMV…); false = Apple's hardware player.
     let usesVLC: Bool
+    /// SHA-256 of the original file — used to spot duplicates (optional for older inbox notes).
+    let contentHash: String?
+}
+
+enum ContentHash {
+    static func sha256(of url: URL) throws -> String {
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        var hasher = SHA256()
+        while true {
+            let piece = try autoreleasepool { try handle.read(upToCount: 4 * 1024 * 1024) } ?? Data()
+            if piece.isEmpty { break }
+            hasher.update(data: piece)
+        }
+        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
+    }
 }
 
 /// Result of inspecting a video Apple's player can't open (filled in by the VLC engine in the app).
@@ -63,7 +82,10 @@ enum MediaIngestor {
     /// only accepts formats Apple's player handles.
     nonisolated(unsafe) static var fallbackInspector: (@Sendable (URL) async throws -> FallbackVideoInfo)?
 
-    static func ingest(fileAt url: URL, displayName: String) async throws -> IngestResult {
+    /// `skipHashes`: content already in the vault — such files are skipped before anything is encrypted.
+    static func ingest(fileAt url: URL, displayName: String, skipHashes: Set<String> = []) async throws -> IngestResult {
+        let contentHash = try? ContentHash.sha256(of: url)
+        if let contentHash, skipHashes.contains(contentHash) { throw IngestError.duplicate(displayName) }
         let type = (try? url.resourceValues(forKeys: [.contentTypeKey]))?.contentType
             ?? UTType(filenameExtension: url.pathExtension)
             ?? .data
@@ -124,7 +146,7 @@ enum MediaIngestor {
 
         return IngestResult(id: id, kind: kind, title: title, contentTypeID: type.identifier,
                             byteSize: Int64(size), duration: duration, pixelWidth: width, pixelHeight: height,
-                            usesVLC: usesVLC)
+                            usesVLC: usesVLC, contentHash: contentHash)
     }
 
     /// Apple's hardware player — used whenever it can play EVERY track (otherwise e.g. an MP4

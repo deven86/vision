@@ -43,22 +43,27 @@ final class ImportCoordinator {
     private(set) var total = 0
     private(set) var completed = 0
     private(set) var failures: [String] = []
+    private(set) var duplicates = 0
+    @ObservationIgnored private var knownHashes: Set<String> = []
     private(set) var summary: String?
 
     var fractionComplete: Double { total == 0 ? 0 : Double(completed) / Double(total) }
 
     func importFromPhotos(_ items: [PhotosPickerItem], into folder: Folder, context: ModelContext) {
         guard !items.isEmpty, !isRunning else { return }
-        begin(count: items.count)
+        begin(count: items.count, context: context)
         Task {
             for item in items {
+                let hashes = knownHashes
                 do {
                     let staged = try await Self.stage(item)
                     defer { try? FileManager.default.removeItem(at: staged.url) }
                     let result = try await Task.detached(priority: .userInitiated) {
-                        try await MediaIngestor.ingest(fileAt: staged.url, displayName: staged.name)
+                        try await MediaIngestor.ingest(fileAt: staged.url, displayName: staged.name, skipHashes: hashes)
                     }.value
                     insert(result, into: folder, context: context)
+                } catch IngestError.duplicate {
+                    duplicates += 1
                 } catch {
                     failures.append(error.localizedDescription)
                 }
@@ -70,16 +75,19 @@ final class ImportCoordinator {
 
     func importFiles(_ urls: [URL], into folder: Folder, context: ModelContext) {
         guard !urls.isEmpty, !isRunning else { return }
-        begin(count: urls.count)
+        begin(count: urls.count, context: context)
         Task {
             for url in urls {
+                let hashes = knownHashes
                 let scoped = url.startAccessingSecurityScopedResource()
                 do {
                     // Encrypt straight from the source — no plaintext copy is made.
                     let result = try await Task.detached(priority: .userInitiated) {
-                        try await MediaIngestor.ingest(fileAt: url, displayName: url.lastPathComponent)
+                        try await MediaIngestor.ingest(fileAt: url, displayName: url.lastPathComponent, skipHashes: hashes)
                     }.value
                     insert(result, into: folder, context: context)
+                } catch IngestError.duplicate {
+                    duplicates += 1
                 } catch {
                     failures.append(error.localizedDescription)
                 }
@@ -108,10 +116,13 @@ final class ImportCoordinator {
         let folder = folders.first { $0.name == Self.sharedFolderName }
             ?? Library.createFolder(named: Self.sharedFolderName, context: context)
         var added = 0
+        knownHashes = Self.activeHashes(context)
         for entry in pending {
             let id = entry.result.id
             let exists = ((try? context.fetchCount(FetchDescriptor<MediaItem>(predicate: #Predicate { $0.id == id }))) ?? 0) > 0
-            if !exists {
+            if !exists, let hash = entry.result.contentHash, knownHashes.contains(hash) {
+                VaultStore.shared.removeFiles(for: id)   // already in the vault: discard the shared copy
+            } else if !exists {
                 insert(entry.result, into: folder, context: context)
                 added += 1
             }
@@ -127,28 +138,38 @@ final class ImportCoordinator {
 
     static let sharedFolderName = "Shared to VISION"
 
+    static func activeHashes(_ context: ModelContext) -> Set<String> {
+        let items = (try? context.fetch(FetchDescriptor<MediaItem>(predicate: #Predicate { $0.deletedAt == nil && $0.contentHash != nil }))) ?? []
+        return Set(items.compactMap(\.contentHash))
+    }
+
     private func insert(_ result: IngestResult, into folder: Folder, context: ModelContext) {
         let item = MediaItem(id: result.id, kind: result.kind, title: result.title,
                              contentTypeID: result.contentTypeID, byteSize: result.byteSize,
                              duration: result.duration, pixelWidth: result.pixelWidth, pixelHeight: result.pixelHeight)
         item.usesVLC = result.usesVLC
+        item.contentHash = result.contentHash
+        if let hash = result.contentHash { knownHashes.insert(hash) }
         context.insert(item)
         item.folder = folder
         Library.save(context)
     }
 
-    private func begin(count: Int) {
+    private func begin(count: Int, context: ModelContext) {
         isRunning = true
         total = count
         completed = 0
         failures = []
+        duplicates = 0
+        knownHashes = Self.activeHashes(context)
         summary = nil
     }
 
     private func finish() {
         isRunning = false
-        let imported = total - failures.count
+        let imported = total - failures.count - duplicates
         var text = "Imported \(imported) of \(total)"
+        if duplicates > 0 { text += " · \(duplicates) already in your vault, skipped" }
         if let first = failures.first {
             text += failures.count == 1 ? " — \(first)" : " — \(failures.count) failed. \(first)"
         }

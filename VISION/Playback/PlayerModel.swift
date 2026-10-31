@@ -5,6 +5,20 @@ import UIKit
 /// What the player screen needs from a playback engine. Two engines implement it:
 /// `PlayerModel` (Apple AVPlayer — hardware decoding, smoothest) and `VLCPlayerModel`
 /// (MKV, AVI, WebM, WMV and other formats Apple's player can't open).
+struct TrackOption: Identifiable, Equatable {
+    let id: String
+    let title: String
+}
+
+/// Lets the app delay its auto-lock while a video plays in Picture in Picture.
+@MainActor
+@Observable
+final class PlaybackSession {
+    static let shared = PlaybackSession()
+    var pictureInPictureActive = false
+    var lockWhenPictureInPictureEnds = false
+}
+
 @MainActor
 protocol PlayerControlling: AnyObject {
     var item: MediaItem { get }
@@ -19,6 +33,11 @@ protocol PlayerControlling: AnyObject {
     var fillsScreen: Bool { get set }
     /// Frame preview shown above the scrubber while seeking (nil if unavailable).
     var previewImage: UIImage? { get }
+    var audioTracks: [TrackOption] { get }
+    var subtitleTracks: [TrackOption] { get }
+    var selectedAudio: String? { get }
+    var selectedSubtitle: String? { get }   // nil = off
+    var supportsPictureInPicture: Bool { get }
 
     func start()
     func stop()
@@ -28,6 +47,9 @@ protocol PlayerControlling: AnyObject {
     func scrub(to seconds: Double)
     func endScrub(at seconds: Double)
     func setRate(_ rate: Float)
+    func selectAudio(_ id: String)
+    func selectSubtitle(_ id: String?)
+    func startPictureInPicture()
 }
 
 extension PlayerControlling {
@@ -40,7 +62,7 @@ extension PlayerControlling {
 
 @MainActor
 @Observable
-final class PlayerModel: PlayerControlling {
+final class PlayerModel: NSObject, PlayerControlling, AVPictureInPictureControllerDelegate {
     let player = AVPlayer()
     let item: MediaItem
 
@@ -55,6 +77,11 @@ final class PlayerModel: PlayerControlling {
     private(set) var previewImage: UIImage?
     var fillsScreen = false
     let supportsFill = true
+    private(set) var audioTracks: [TrackOption] = []
+    private(set) var subtitleTracks: [TrackOption] = []
+    private(set) var selectedAudio: String?
+    private(set) var selectedSubtitle: String?
+    var supportsPictureInPicture: Bool { AVPictureInPictureController.isPictureInPictureSupported() }
 
     var videoGravity: AVLayerVideoGravity { fillsScreen ? .resizeAspectFill : .resizeAspect }
 
@@ -68,10 +95,14 @@ final class PlayerModel: PlayerControlling {
     @ObservationIgnored private var generator: AVAssetImageGenerator?
     @ObservationIgnored private var previewTarget: Double?
     @ObservationIgnored private var previewBusy = false
+    @ObservationIgnored private var audioGroup: AVMediaSelectionGroup?
+    @ObservationIgnored private var subtitleGroup: AVMediaSelectionGroup?
+    @ObservationIgnored private var pipController: AVPictureInPictureController?
 
     init(item: MediaItem) {
         self.item = item
         self.duration = item.duration
+        super.init()
     }
 
     // MARK: Lifecycle
@@ -114,6 +145,8 @@ final class PlayerModel: PlayerControlling {
     }
 
     func stop() {
+        if pipController?.isPictureInPictureActive == true { pipController?.stopPictureInPicture() }
+        pipController = nil
         saveProgress()
         player.pause()
         generator?.cancelAllCGImageGeneration()
@@ -140,6 +173,7 @@ final class PlayerModel: PlayerControlling {
                 case .readyToPlay:
                     self.isReady = true
                     if seconds.isFinite, seconds > 0 { self.duration = seconds }
+                    await self.loadTracks()
                 case .failed:
                     self.errorMessage = message ?? "Playback failed."
                     self.isBuffering = false
@@ -266,6 +300,65 @@ final class PlayerModel: PlayerControlling {
         }
     }
 
+    // MARK: Audio & subtitle tracks
+
+    private func loadTracks() async {
+        guard let playerItem = player.currentItem else { return }
+        let asset = playerItem.asset
+        audioGroup = try? await asset.loadMediaSelectionGroup(for: .audible)
+        subtitleGroup = try? await asset.loadMediaSelectionGroup(for: .legible)
+        audioTracks = (audioGroup?.options ?? []).enumerated().map { TrackOption(id: "\($0.offset)", title: $0.element.displayName) }
+        subtitleTracks = (subtitleGroup?.options ?? []).enumerated().map { TrackOption(id: "\($0.offset)", title: $0.element.displayName) }
+        if let group = audioGroup, let current = playerItem.currentMediaSelection.selectedMediaOption(in: group),
+           let index = group.options.firstIndex(of: current) { selectedAudio = "\(index)" }
+        if let group = subtitleGroup, let current = playerItem.currentMediaSelection.selectedMediaOption(in: group),
+           let index = group.options.firstIndex(of: current) { selectedSubtitle = "\(index)" }
+    }
+
+    func selectAudio(_ id: String) {
+        guard let group = audioGroup, let index = Int(id), group.options.indices.contains(index) else { return }
+        player.currentItem?.select(group.options[index], in: group)
+        selectedAudio = id
+    }
+
+    func selectSubtitle(_ id: String?) {
+        guard let group = subtitleGroup else { return }
+        if let id, let index = Int(id), group.options.indices.contains(index) {
+            player.currentItem?.select(group.options[index], in: group)
+        } else {
+            player.currentItem?.select(nil, in: group)
+        }
+        selectedSubtitle = id
+    }
+
+    // MARK: Picture in Picture
+
+    func attach(layer: AVPlayerLayer) {
+        guard pipController == nil, AVPictureInPictureController.isPictureInPictureSupported() else { return }
+        let controller = AVPictureInPictureController(playerLayer: layer)
+        controller?.delegate = self
+        controller?.canStartPictureInPictureAutomaticallyFromInline = false   // only when you tap the button
+        pipController = controller
+    }
+
+    func startPictureInPicture() {
+        pipController?.startPictureInPicture()
+    }
+
+    nonisolated func pictureInPictureControllerWillStartPictureInPicture(_ controller: AVPictureInPictureController) {
+        Task { @MainActor in PlaybackSession.shared.pictureInPictureActive = true }
+    }
+
+    nonisolated func pictureInPictureControllerDidStopPictureInPicture(_ controller: AVPictureInPictureController) {
+        Task { @MainActor in
+            PlaybackSession.shared.pictureInPictureActive = false
+            if PlaybackSession.shared.lockWhenPictureInPictureEnds {
+                PlaybackSession.shared.lockWhenPictureInPictureEnds = false
+                NotificationCenter.default.post(name: .visionLockNow, object: nil)
+            }
+        }
+    }
+
     private func didFinish() {
         currentTime = duration
         item.watchPosition = 0
@@ -279,4 +372,8 @@ final class PlayerModel: PlayerControlling {
         item.lastPlayedAt = Date()
         try? item.modelContext?.save()
     }
+}
+
+extension Notification.Name {
+    static let visionLockNow = Notification.Name("vision.lockNow")
 }

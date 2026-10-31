@@ -10,12 +10,14 @@ final class PlayerUIView: UIView {
 struct PlayerLayerView: UIViewRepresentable {
     let player: AVPlayer
     var gravity: AVLayerVideoGravity = .resizeAspect
+    var onLayer: ((AVPlayerLayer) -> Void)? = nil
 
     func makeUIView(context: Context) -> PlayerUIView {
         let view = PlayerUIView()
         view.backgroundColor = .clear
         view.playerLayer.player = player
         view.playerLayer.videoGravity = gravity
+        onLayer?(view.playerLayer)
         return view
     }
 

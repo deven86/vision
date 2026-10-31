@@ -46,6 +46,8 @@ targets:
         VISIONKeychainGroup: $(AppIdentifierPrefix)com.jondhale.vision.shared
         VISIONCloudKitEnabled: true
         ITSAppUsesNonExemptEncryption: false   # only Apple OS crypto (CryptoKit) — exempt; skips the compliance prompt per build
+        UIBackgroundModes:
+          - audio
         UILaunchScreen:
           UIColorName: LaunchBackground
         UIUserInterfaceStyle: Dark

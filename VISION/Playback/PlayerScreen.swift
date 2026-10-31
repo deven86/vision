@@ -75,7 +75,7 @@ struct PlayerScreen: View {
     @ViewBuilder
     private var surface: some View {
         if let av = model as? PlayerModel {
-            PlayerLayerView(player: av.player, gravity: av.videoGravity)
+            PlayerLayerView(player: av.player, gravity: av.videoGravity) { layer in av.attach(layer: layer) }
         } else if let vlc = model as? VLCPlayerModel {
             VLCSurface(player: vlc.player)
         }
@@ -364,10 +364,50 @@ struct PlayerControls: View {
                         .font(.subheadline.weight(.semibold))
                 }
                 Spacer()
+                if !model.audioTracks.isEmpty || !model.subtitleTracks.isEmpty {
+                    Menu {
+                        if !model.subtitleTracks.isEmpty {
+                            Section("Subtitles") {
+                                trackButton("Off", selected: model.selectedSubtitle == nil) { model.selectSubtitle(nil) }
+                                ForEach(model.subtitleTracks) { track in
+                                    trackButton(track.title, selected: model.selectedSubtitle == track.id) { model.selectSubtitle(track.id) }
+                                }
+                            }
+                        }
+                        if model.audioTracks.count > 1 {
+                            Section("Audio") {
+                                ForEach(model.audioTracks) { track in
+                                    trackButton(track.title, selected: model.selectedAudio == track.id) { model.selectAudio(track.id) }
+                                }
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "captions.bubble").font(.title3).frame(width: 40, height: 32)
+                    }
+                    .accessibilityLabel("Subtitles and audio")
+                }
+                if model.supportsPictureInPicture {
+                    Button {
+                        model.startPictureInPicture()
+                        onInteract()
+                    } label: {
+                        Image(systemName: "pip.enter").font(.title3).frame(width: 40, height: 32)
+                    }
+                    .accessibilityLabel("Picture in Picture")
+                }
                 Text("\(Format.clock(model.currentTime)) / \(Format.clock(model.duration))")
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(Theme.secondaryText)
             }
+        }
+    }
+
+    private func trackButton(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button {
+            action()
+            onInteract()
+        } label: {
+            if selected { Label(title, systemImage: "checkmark") } else { Text(title) }
         }
     }
 

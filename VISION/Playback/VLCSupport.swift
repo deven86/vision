@@ -103,6 +103,12 @@ final class VLCPlayerModel: PlayerControlling {
     let supportsFill = false
     var fillsScreen = false
     let previewImage: UIImage? = nil   // VLC: the video frame itself follows the finger instead
+    let supportsPictureInPicture = false
+    private(set) var audioTracks: [TrackOption] = []
+    private(set) var subtitleTracks: [TrackOption] = []
+    private(set) var selectedAudio: String?
+    private(set) var selectedSubtitle: String?
+    @ObservationIgnored private var tracksLoaded = false
 
     @ObservationIgnored private var server: LoopbackMediaServer?
     @ObservationIgnored private var timer: Timer?
@@ -182,7 +188,35 @@ final class VLCPlayerModel: PlayerControlling {
         if !isScrubbing, pendingResume == nil {
             currentTime = Double(player.time.intValue) / 1000
         }
+        if !tracksLoaded, player.isPlaying { loadTracks() }
     }
+
+    private func loadTracks() {
+        tracksLoaded = true
+        func options(_ indexes: [Any], _ names: [Any]) -> [TrackOption] {
+            zip(indexes, names).compactMap { index, name in
+                guard let index = index as? NSNumber, index.int32Value >= 0 else { return nil }   // -1 = "Disable"
+                return TrackOption(id: index.stringValue, title: (name as? String) ?? "Track \(index)")
+            }
+        }
+        audioTracks = options(player.audioTrackIndexes, player.audioTrackNames)
+        subtitleTracks = options(player.videoSubTitlesIndexes, player.videoSubTitlesNames)
+        selectedAudio = player.currentAudioTrackIndex >= 0 ? "\(player.currentAudioTrackIndex)" : nil
+        selectedSubtitle = player.currentVideoSubTitleIndex >= 0 ? "\(player.currentVideoSubTitleIndex)" : nil
+    }
+
+    func selectAudio(_ id: String) {
+        guard let index = Int32(id) else { return }
+        player.currentAudioTrackIndex = index
+        selectedAudio = id
+    }
+
+    func selectSubtitle(_ id: String?) {
+        player.currentVideoSubTitleIndex = id.flatMap(Int32.init) ?? -1
+        selectedSubtitle = id
+    }
+
+    func startPictureInPicture() {}
 
     func togglePlayPause() {
         if player.isPlaying {

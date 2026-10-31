@@ -92,6 +92,7 @@ struct ItemPayload: Codable, Equatable {
     var usesVLC: Bool
     /// Number of encrypted media parts in iCloud (0 = media not backed up).
     var mediaParts: Int
+    var contentHash: String?
     var modifiedAt: Date
 
     init(_ item: MediaItem) {
@@ -113,6 +114,7 @@ struct ItemPayload: Codable, Equatable {
         folderID = item.folder?.id
         usesVLC = item.usesVLC
         mediaParts = item.cloudMediaParts
+        contentHash = item.contentHash
         modifiedAt = item.modifiedAt
     }
 
@@ -140,6 +142,7 @@ struct ItemPayload: Codable, Equatable {
         item.folder = folderID.flatMap { id in folders.first { $0.id == id } }
         item.usesVLC = usesVLC
         item.cloudMediaParts = mediaParts
+        if let contentHash { item.contentHash = contentHash }
         item.modifiedAt = modifiedAt
     }
 }

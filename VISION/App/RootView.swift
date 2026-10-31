@@ -20,13 +20,24 @@ struct RootView: View {
             }
         }
         .animation(.easeInOut(duration: 0.25), value: auth.isUnlocked)
+        .onReceive(NotificationCenter.default.publisher(for: .visionLockNow)) { _ in
+            if scenePhase != .active { auth.lock() }
+        }
         .onChange(of: scenePhase) { _, phase in
             switch phase {
             case .background:
                 backgroundedAt = Date()
-                if autoLockSeconds == 0 { auth.lock() }
+                if PlaybackSession.shared.pictureInPictureActive {
+                    // Keep the floating video playing; lock the moment it is closed.
+                    PlaybackSession.shared.lockWhenPictureInPictureEnds = true
+                } else if autoLockSeconds == 0 {
+                    auth.lock()
+                }
             case .active:
-                if let since = backgroundedAt, Date().timeIntervalSince(since) >= Double(autoLockSeconds) {
+                PlaybackSession.shared.lockWhenPictureInPictureEnds = false
+                if PlaybackSession.shared.pictureInPictureActive {
+                    backgroundedAt = nil
+                } else if let since = backgroundedAt, Date().timeIntervalSince(since) >= Double(autoLockSeconds) {
                     auth.lock()
                 }
                 backgroundedAt = nil
